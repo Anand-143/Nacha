@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Serverless FixedRate RDS-PROXY Stack
+
+Parameters:
+  AppCode:
+    Type: String
+    Default: OD852
+  AppCodeLower:
+    Type: String
+    Default: od852
+  AppName:
+    Type: String
+    Default: fixedrate
+  TeamName:
+    Type: String
+    Default: odm
+  Region:
+    Type: String
+    AllowedValues:
+      - us-east-1
+      - us-east-2
+    Default: us-east-1
+  Department:
+    Type: String
+    Default: "Customer Service IT"
+  OwnerContact:
+    Type: String
+    Default: "nicolas.zerrate@fpl.com"
+  RolePermissionBoundary:
+    Type: String
+
+Mappings:
+  AccountIDMap:
+    "237980099910":
+      VPCShortName: FPLSandbox
+    "977465404123":
+      VPCShortName: FPLDev
+      DBClusterIdentifier: aws-fnv-od852-csodm-cluster01-rds
+    "516627182506":
+      VPCShortName: FPLTest
+      DBClusterIdentifier: aws-ftv-od852-csfrodm-cluster-0a309242ce07-rds
+    "485449107334":
+      VPCShortName: FPLQA
+    "430004966399":
+      VPCShortName: FPLProd
+    "202055847252":
+      VPCShortName: FPLDR
+
+Resources:
+  RDSSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-RDS-Secret
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Description: fixedrate Application RDS Secret
+      SecretString: '{"username":"csfrodm_app_owner","password":"csfrodm_app_owner123"}'
+      Tags:
+        - Key: AppCode
+          Value: !Sub ${AppCode}
+        - Key: AppName
+          Value: !Sub ${AppName}
+  RDSSecret2:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-DB2-Secret
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Description: Fixedrate Application DB2 Secret
+      SecretString: '{"host":"SC01","database":"FPLDB2T","port":"1022","username":"ZZZ0ODM","password":"Odm20DB2"}'
+      Tags:
+        - Key: AppCode
+          Value: !Sub ${AppCode}
+        - Key: AppName
+          Value: !Sub ${AppName}
+  RDSProxy:
+    Type: AWS::RDS::DBProxy
+    Properties: 
+      Auth: 
+        - {AuthScheme: SECRETS, SecretArn: !Ref RDSSecret, IAMAuth: DISABLED}
+      DBProxyName:
+        Fn::Sub:
+          - aws-${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-RDS-Proxy
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      DebugLogging: false
+      EngineFamily: POSTGRESQL
+      IdleClientTimeout: 1800 # 30 minutes
+      RequireTLS: false
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-RDS-Role
+      VpcSecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${AppCode}-${AppName}-RDS-Proxy-L4-SG"
+      VpcSubnetIds: 
+        - Fn::ImportValue:
+            !Join ['-',[ 'VPC', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], 'A', 'DataBase', 'SUBNET' ] ]
+        - Fn::ImportValue:
+            !Join ['-',[ 'VPC', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], 'B', 'DataBase', 'SUBNET' ] ]
+        - Fn::ImportValue:
+            !Join ['-',[ 'VPC', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], 'C', 'DataBase', 'SUBNET' ] ]
+      Tags:
+        - Key: AppCode
+          Value: !Sub ${AppCode}
+        - Key: AppName
+          Value: !Sub ${AppName}
+  RDSProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties: 
+      ConnectionPoolConfigurationInfo: 
+        ConnectionBorrowTimeout: 120
+        MaxConnectionsPercent: 100
+        MaxIdleConnectionsPercent: 50
+      DBClusterIdentifiers: 
+        - !FindInMap [AccountIDMap, !Ref "AWS::AccountId", DBClusterIdentifier]
+      DBProxyName: !Ref RDSProxy
+      TargetGroupName: default

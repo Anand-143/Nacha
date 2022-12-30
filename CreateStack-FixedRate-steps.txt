@@ -1,0 +1,73 @@
+NEEITO SUBMIT COMMAND
+neeaws neeito submit fp197-read-army-neeito.json -a 516627182506 -v FPLTest
+
+NEEITO USER ID
+FPLNonProd - AROAIXCWNIPPROVRBVJWE - 977465404123
+FPLTest - AROAI2MPR35NRLWSHGQRO - 516627182506
+FPLQA - AROAXCBYFQ6DGFDK6IDK7 - 485449107334
+FPLProd - AROAWIHSLCP72NXMPYXIA - 430004966399
+
+CLEAR EXPIRING TOCKENS
+1. Open a terminal
+2. Clear the variables
+setx AWS_ACCESS_KEY_ID ""
+setx AWS_SECRET_ACCESS_KEY ""
+3. Close terminal
+4. Delete .aws folder
+
+NEE AWS CREATE STACK STEPS
+1. neeaws login
+
+
+2. Enter Slid
+3. Enter Password
+4. Enter PIN + RSA Token
+5. Select DevOps role and Environment
+6. Set Proxies by executing the following commands:
+set HTTP_PROXY=webproxyeva.fpl.com:8080
+set HTTPS_PROXY=webproxyeva.fpl.com:8080
+set NO_PROXY=169.254.169.254
+VDI Proxies:
+	set HTTP_PROXY=webproxyeva.fpl.com:8080
+	set HTTPS_PROXY=webproxyeva.fpl.com:8080
+	set NO_PROXY=169.254.169.254
+7. Assume Neeito Role using the following command: 
+neeaws neeito assume arn:aws:iam::977465404123:role/neeito-build-od852-odm-fixedrate -p odmprofile
+neeaws neeito assume arn:aws:iam::516627182506:role/neeito-build-od852-odm-fixedrate -p odmprofile
+
+8. Set Variables based on previous step
+	setx AWS_ACCESS_KEY_ID XXX
+	setx AWS_SECRET_ACCESS_KEY XXX
+	setx AWS_SESSION_TOKEN XXX
+9. Execute aws cloudformation create-stack
+10. If create-stack command is successful, check CloudFormation status using AWS Console
+
+FPLNonProd
+aws s3 cp "C:\Users\NXZ084G\OneDrive - NEE\Documents\FP&L\EV\AWS\CloudFormationTemplates\fp197-honey-badgers-evmdm-roles-cf.yaml" s3://2fnv-od852-fixedrate-cf-s3/
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-roles --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-roles-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --profile odmprofile
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-sg --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-sg-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+aws cloudformation create-stack --stack-name fp197-honey-badgers-evmdm-rds-proxy --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-rds-proxy-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+aws cloudformation create-stack --stack-name fp197-honey-badgers-evmdm-resources --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-resources-cf.yaml --parameters ParameterKey='SubnetID',ParameterValue='B,C,' ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+
+aws cloudformation update-stack --stack-name fp197-read-army-mdm-roles --region us-east-1 --template-url https://2fnv-fp197-mdm-cf-s3.s3.amazonaws.com/fp197-read-army-mdm-roles-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --profile mdmprofile
+aws cloudformation update-stack --stack-name fp197-honey-badgers-evmdm-sg --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-sg-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile mdmprofile
+aws cloudformation update-stack --stack-name fp197-honey-badgers-evmdm-rds-proxy --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-rds-proxy-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile mdmprofile
+aws cloudformation update-stack --stack-name fp197-honey-badgers-evmdm-resources --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-resources-cf.yaml --parameters ParameterKey='SubnetID',ParameterValue='B,C,' ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile mdmprofile
+aws cloudformation update-stack --stack-name fp197-honey-badgers-evmdm-resources --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-resources-cf.yaml --parameters ParameterKey='SubnetID',ParameterValue='B,C,' ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile mdmprofile
+
+aws cloudformation update-stack --stack-name fp197-honey-badgers-evmdm-testbucket --region us-east-1 --template-url https://2fnv-od852-fixedrate-cf-s3.s3.amazonaws.com/fp197-honey-badgers-evmdm-bucket_lifecycle.yaml --parameters ParameterKey='SubnetID',ParameterValue='B,C,' ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::977465404123:policy/neeito-app-pb-neeito-build-fp197-honey-badgers-evmdm" --tags Key=AppCode,Value=FP197 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile mdmprofile
+
+
+FPLTEST 
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-roles --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-roles-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --profile odmprofile
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-sg --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-sg-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-rds-proxy --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-rds-proxy-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+aws cloudformation create-stack --stack-name od852-odm-fixedrate-resources --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-resources-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+
+aws cloudformation update-stack --stack-name od852-odm-fixedrate-roles --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-roles-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --profile odmprofile
+aws cloudformation update-stack --stack-name od852-odm-fixedrate-rds-proxy --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-rds-proxy-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+
+aws cloudformation update-stack --stack-name od852-odm-fixedrate-resources --region us-east-1 --template-url https://2ftv-od852-fixedrate-cf-s3.s3.amazonaws.com/od852-odm-fixedrate-resources-cf.yaml --parameters ParameterKey=RolePermissionBoundary,ParameterValue="arn:aws:iam::516627182506:policy/neeito-app-pb-neeito-build-od852-odm-fixedrate" --tags Key=AppCode,Value=OD852 --capabilities CAPABILITY_NAMED_IAM --capabilities CAPABILITY_AUTO_EXPAND --profile odmprofile
+
+
+

@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Serverless MDM SecurityGroup Stack
+
+Parameters:
+  AppCode:
+    Type: String
+    Default: OD852
+  AppCodeLower:
+    Type: String
+    Default: od852
+  AppName:
+    Type: String
+    Default: fixedrate
+  TeamName:
+    Type: String
+    Default: odm
+  Region:
+    Type: String
+    AllowedValues:
+      - us-east-1
+      - us-east-2
+    Default: us-east-1
+  Department:
+    Type: String
+    Default: "Customer Service IT"
+  OwnerContact:
+    Type: String
+    Default: "nicolas.zerrate@fpl.com"
+  RolePermissionBoundary:
+    Type: String
+
+Mappings:
+  AccountIDMap:
+    "237980099910":
+      VPCShortName: FPLSandbox
+    "977465404123":
+      VPCShortName: FPLDev
+    "516627182506":
+      VPCShortName: FPLTest
+    "485449107334":
+      VPCShortName: FPLQA
+    "430004966399":
+      VPCShortName: FPLProd
+    "202055847252":
+      VPCShortName: FPLDR
+
+Resources:
+  L4RDSProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Layer 4 Security Group for RDS Proxy and RDS Instance'
+      GroupName: !Join
+        - '-'
+        - - L4
+          - !Ref AppCode
+          - FIXEDRATE-DB-RDS
+          - !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName]
+          - !ImportValue Account-Global-AccountCode
+          - SG
+      VpcId: 
+        Fn::ImportValue: !Join ["-", ["VPC", !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], "VPCID"]] 
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          CidrIp: 10.0.0.0/8
+          FromPort: 5432
+          ToPort: 5432
+        - IpProtocol: TCP
+          CidrIp: 10.0.0.0/0
+          FromPort: 5605
+          ToPort: 5605
+        - IpProtocol: TCP
+          CidrIpv6: ::/0
+          FromPort: 5605
+          ToPort: 5605
+      SecurityGroupEgress:
+        - IpProtocol: TCP
+          CidrIp: 10.0.0.0/8
+          FromPort: 5432
+          ToPort: 5432
+      Tags:
+        - Key: AppCode
+          Value: !Ref AppCode
+        - Key: AppName
+          Value: !Ref AppName
+
+  SelfInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: 
+      IpProtocol: TCP
+      FromPort: 5605
+      Description: self referencing the security group
+      ToPort: 5605
+      GroupId: !Ref L4RDSProxySecurityGroup
+      SourceSecurityGroupId: !Ref L4RDSProxySecurityGroup
+  SelfOutboundRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: 
+      IpProtocol: TCP
+      FromPort: 5605
+      Description: self referencing the security group
+      ToPort: 5605
+      GroupId: !Ref L4RDSProxySecurityGroup
+      DestinationSecurityGroupId: !Ref L4RDSProxySecurityGroup 
+  L4LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Layer 4 Security Group for LAMBDA'
+      GroupName: !Join
+        - '-'
+        - - L4
+          - !Ref AppCode
+          - FIXEDRATE-Lambda
+          - !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName]
+          - !ImportValue Account-Global-AccountCode
+          - SG
+      VpcId: 
+        Fn::ImportValue: !Join ["-", ["VPC", !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], "VPCID"]] 
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          CidrIp: 10.195.64.0/20
+          FromPort: 465
+          ToPort: 465
+      SecurityGroupEgress:
+        - IpProtocol: TCP
+          Description: Allow outbound traffic to  Postgres RDS Proxy
+          CidrIp: 10.0.0.0/8
+          FromPort: 5432
+          ToPort: 5432
+        - IpProtocol: TCP
+          Description: Allow outbound traffic to Postgres
+          CidrIp: 10.0.0.0/8
+          FromPort: 5600
+          ToPort: 5630
+        - IpProtocol: TCP
+          Description: Allow outbound traffic via HTTPS
+          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort: 443
+        - IpProtocol: TCP
+          Description: Allow outbound traffic to EDI server
+          CidrIp: 0.0.0.0/0
+          FromPort: 10022
+          ToPort: 10022
+        - IpProtocol: TCP
+          Description: Allow outbound traffic to EDI server
+          CidrIpv6: ::/0
+          FromPort: 10022
+          ToPort: 10022
+      Tags:
+        - Key: AppCode
+          Value: !Ref AppCode
+        - Key: AppName
+          Value: !Ref AppName
+Outputs:
+  RDSProxySG:
+    Description: L4 RDS Proxy Security group
+    Value: !GetAtt L4RDSProxySecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AppCode}-${AppName}-RDS-Proxy-L4-SG"
+  LambdaSG:
+    Description: L4 Lambda Security group
+    Value: !GetAtt L4LambdaSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AppCode}-${AppName}-Lambda-L4-SG"

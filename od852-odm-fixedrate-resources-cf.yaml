@@ -1,0 +1,543 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless FixedRate Resources Stack
+
+Parameters:
+  AppCode:
+    Type: String
+    Default: OD852
+  AppCodeLower:
+    Type: String
+    Default: od852
+  AppName:
+    Type: String
+    Default: fixedrate
+  TeamName:
+    Type: String
+    Default: odm
+  Region:
+    Type: String
+    AllowedValues:
+      - us-east-1
+      - us-east-2
+    Default: us-east-1
+  Department:
+    Type: String
+    Default: "Customer Service IT"
+  OwnerContact:
+    Type: String
+    Default: "nicolas.zerrate@fpl.com"
+  RolePermissionBoundary:
+    Type: String
+  RDSProxyPort:
+    Type: String
+    Description: 'Please Enter RDS Proxy Port'
+    Default: "5432"
+  SubnetID:
+    Description: Enter the subnet B,C for Non-Prod and A,B,C, for all other Environments
+    Type: String
+    AllowedValues:
+      - B,C,
+      - A,B,C,
+    Default: A,B,C,
+
+
+Mappings:
+  AccountIDMap:
+    "237980099910":
+      VPCShortName: FPLSandbox
+    "977465404123":
+      VPCShortName: FPLDev
+      RDSProxyEndpoint: "aws-ftv-od852-fixedrate-rds-proxy.proxy-cq5nryu9qrxd.us-east-1.rds.amazonaws.com"
+      RDSDatabaseName: csfrodmd
+    "516627182506":
+      VPCShortName: FPLTest
+      RDSProxyEndpoint: "aws-ftv-od852-fixedrate-rds-proxy.proxy-cq5nryu9qrxd.us-east-1.rds.amazonaws.com"
+      RDSDatabaseName: csfrodmt
+      Fplsqshost: "https://sqs.us-east-1.amazonaws.com/516627182506/2ftv-od852-fixedrate-fplsqs-Standard"
+      Fplnwsqshost: "https://sqs.us-east-1.amazonaws.com/516627182506/2ftv-od852-fixedrate-fplnwsqs-Standard"
+      odmurl: "https://odmdscld.fpl.com/DecisionService/rest/FPL_Billing_FixedRate_Eligibility/FixedRateRuleset/json"
+      SESDomain: fixed-rate@mdm.fpltest.com
+      Secretname: 2ftv-od852-fixedrate-RDS-Secret
+      ExpFileToS3EDTCron: "cron(0 12-22/2 * * ? *)"
+      ExpFileToS3ESTCron: "cron(0 13-23/2 * * ? *)"
+    "485449107334":
+      VPCShortName: FPLQA
+    "430004966399":
+      VPCShortName: FPLProd
+    "202055847252":
+      VPCShortName: FPLDR
+      
+Conditions:
+  Dosubnet3exists: !Not [!Equals [!Select [ 2, !Split [ ",", !Ref SubnetID]], ""]]
+
+Globals:
+  Function:
+    Runtime: nodejs14.x
+    MemorySize: 5120
+    Timeout: 900
+    Environment:
+      Variables:
+        aws_console: true
+        aws_account: !Ref AWS::AccountId
+        rds_proxy_host: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", RDSProxyEndpoint]
+        rds_proxy_port: !Ref RDSProxyPort
+        database: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", RDSDatabaseName]
+        http_proxy: "http://webproxyeva.fpl.com:8080"
+        https_proxy: "http://webproxyeva.fpl.com:8080"
+        no_proxy: "*.fpl.com,*.neeaws.local"
+        from: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", SESDomain]
+        to: Narendrababu.Chennamsetti@fpl.com;Larry.Logan@fpl.com
+        secret_name: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", Secretname]
+    EventInvokeConfig:
+      MaximumRetryAttempts: 0
+    Tags:
+      AppCode: !Sub ${AppCode}
+      AppName: !Sub ${AppName}
+    VpcConfig:
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            !Join ['-',[ 'SG', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], 'L1SG' ] ]
+        - Fn::ImportValue:
+            !Join ['-', [ 'SG', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], 'L3SGDBPostGresOLTPandDSS' ] ]
+        - Fn::ImportValue: !Sub "${AppCode}-${AppName}-Lambda-L4-SG"
+      SubnetIds:
+        - Fn::ImportValue:
+            !Join ['-',[ 'VPC', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], !Select [ 0, !Split [ ",", !Ref SubnetID]], 'App', 'SUBNET' ] ]
+        - Fn::ImportValue:
+            !Join ['-',[ 'VPC', !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName], !Select [ 1, !Split [ ",", !Ref SubnetID]], 'App', 'SUBNET' ] ]
+        - Fn::If:
+          - Dosubnet3exists
+          - !ImportValue
+              'Fn::Join':
+                - '-'
+                - - VPC
+                  - !FindInMap [AccountIDMap, !Ref "AWS::AccountId", VPCShortName]
+                  - !Select [ 2, !Split [ ",", !Ref SubnetID]]
+                  - App
+                  - SUBNET
+          - !Ref 'AWS::NoValue'
+Resources:
+  BackEndBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-sftp-files-s3
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+  LambdaFunctionDatabaseLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: Database Layer
+      LayerName: !Join 
+        - '-'
+        - - !Join 
+            - ''
+            - - '2'
+              - !ImportValue Account-Global-AccountCodeLower
+              - !ImportValue 
+                'Fn::Join':
+                  - '-'
+                  - - Account-Global-RegionCodeLower
+                    - !Ref 'AWS::Region'
+          - !Ref AppCodeLower
+          - !Ref AppName
+          - DatabaseLayer
+      ContentUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: DatabaseLayer/nodejs.zip
+      CompatibleRuntimes:
+        - nodejs14.x
+  LambdaFunctionMailLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: Mail layer
+      LayerName: !Join 
+        - '-'
+        - - !Join 
+            - ''
+            - - '2'
+              - !ImportValue Account-Global-AccountCodeLower
+              - !ImportValue 
+                'Fn::Join':
+                  - '-'
+                  - - Account-Global-RegionCodeLower
+                    - !Ref 'AWS::Region'
+          - !Ref AppCodeLower
+          - !Ref AppName
+          - MailLayer
+      ContentUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: MailLayer/nodejs.zip
+      CompatibleRuntimes:
+        - nodejs14.x
+  LambdaFunctionWebserviceLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: WebService layer
+      LayerName: !Join 
+        - '-'
+        - - !Join 
+            - ''
+            - - '2'
+              - !ImportValue Account-Global-AccountCodeLower
+              - !ImportValue 
+                'Fn::Join':
+                  - '-'
+                  - - Account-Global-RegionCodeLower
+                    - !Ref 'AWS::Region'
+          - !Ref AppCodeLower
+          - !Ref AppName
+          - WebService
+      ContentUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: WebService/nodejs.zip
+      CompatibleRuntimes:
+        - nodejs14.x
+  LoaddateLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-loaddata-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Loaddata.zip
+      Events:
+        LoadingImportEvent:
+          Type: S3
+          Properties:
+            Bucket: !Ref BackEndBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: CAMS_Data/
+                  - Name: suffix
+                    Value: "ZBI_R_FR_FPLNW_CUST.csv"
+      EventInvokeConfig:
+        DestinationConfig:
+          OnSuccess:
+            Type: Lambda
+            Destination: !GetAtt FplnwsqsmsgLF.Arn
+  OdmprocessingLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-odmprocessing-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+        - !Ref LambdaFunctionWebserviceLayer
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Odmprocessing.zip
+      Environment:
+        Variables:
+          fpl_nwsqs_host: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", Fplnwsqshost]
+          odm_url: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", odmurl]
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FplnwserviceSQS.Arn
+            Enabled: true
+            BatchSize: 1
+  FplodmprocessingLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplodmprocessing-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Fplodmprocessing.zip
+      Environment:
+        Variables:
+          fpl_sqs_host: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", Fplsqshost]
+          odm_url: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", odmurl]
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FplserviceSQS.Arn
+            Enabled: true
+            BatchSize: 1
+  FplloaddataLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplloaddata-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Fplloaddata.zip
+      EventInvokeConfig:
+        DestinationConfig:
+          OnSuccess:
+            Type: Lambda
+            Destination: !GetAtt FplsqsmsgLF.Arn
+  FplserviceSQS:
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 3600
+      QueueName:
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplsqs-Standard
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      ReceiveMessageWaitTimeSeconds: 0
+      Tags:
+        - Key: AppCode
+          Value: !Sub ${AppCode}
+        - Key: AppName
+          Value: !Sub ${AppName}
+      VisibilityTimeout: 1000
+  QueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    DependsOn:
+      - FplserviceSQS
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              AWS:
+                - !Ref AWS::AccountId
+            Action:
+              - "SQS:SendMessage"
+              - "SQS:ReceiveMessage"
+              - "SQS:DeleteQueue"
+              - "SQS:CreateQueue"
+              - "SQS:DeleteMessage"
+            Resource: !GetAtt FplserviceSQS.Arn
+      Queues:
+        - !Ref FplserviceSQS
+  FplsqsmsgLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplsqsmessaging-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+        - !Ref LambdaFunctionWebserviceLayer        
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Fplsqsmessaging.zip
+      Environment:
+        Variables:
+          fpl_sqs_host: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", Fplsqshost]
+  FplnwsqsmsgLF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplnwsqsmessaging-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+        - !Ref LambdaFunctionWebserviceLayer        
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: Fplnwsqsmessaging.zip
+      Environment:
+        Variables:
+          fpl_nwsqs_host: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", Fplnwsqshost]
+  FplnwserviceSQS:
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 3600
+      QueueName:
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-fplnwsqs-Standard
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      ReceiveMessageWaitTimeSeconds: 0
+      Tags:
+        - Key: AppCode
+          Value: !Sub ${AppCode}
+        - Key: AppName
+          Value: !Sub ${AppName}
+      VisibilityTimeout: 1000
+  QueuePolicy2:
+    Type: 'AWS::SQS::QueuePolicy'
+    DependsOn:
+      - FplnwserviceSQS
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              AWS:
+                - !Ref AWS::AccountId
+            Action:
+              - "SQS:SendMessage"
+              - "SQS:ReceiveMessage"
+              - "SQS:DeleteQueue"
+              - "SQS:CreateQueue"
+              - "SQS:DeleteMessage"
+            Resource: !GetAtt FplnwserviceSQS.Arn
+      Queues:
+        - !Ref FplnwserviceSQS
+  ExportFileToS3LF:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: 
+        Fn::Sub:
+          - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-exportFileToS3-LF
+          - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+            Region:
+              Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+      Handler: index.handler
+      Layers:
+        - !Ref LambdaFunctionDatabaseLayer
+        - !Ref LambdaFunctionMailLayer
+        - !Ref LambdaFunctionWebserviceLayer        
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/od852-odm-fixedrate-Lambda-Role
+      PackageType: Zip
+      CodeUri:
+        Bucket:
+          Fn::Sub:
+            - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-cf-s3
+            - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+              Region:
+                Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+        Key: ExportFileToS3.zip
+      Events:
+        FileToS3EDT:
+          Type: Schedule
+          Properties:
+            Schedule: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", ExpFileToS3EDTCron]
+            Name:
+              Fn::Sub:
+                - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-ExpFileToS3-LF-Event-EDT-FIXEDRATE
+                - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+                  Region:
+                    Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+            Description: 'Cron Schedule for ExpFileToS3-LF-Event-EDT-FIXEDRATE'
+            Enabled: False
+        FileToS3EST:
+          Type: Schedule
+          Properties:
+            Schedule: !FindInMap [AccountIDMap, !Ref "AWS::AccountId", ExpFileToS3ESTCron]
+            Name:
+              Fn::Sub:
+                - 2${AccountCodeLower}${Region}-${AppCodeLower}-${AppName}-ExpFileToS3-LF-Event-EST-FIXEDRATE
+                - AccountCodeLower: !ImportValue Account-Global-AccountCodeLower
+                  Region:
+                    Fn::ImportValue: !Sub "Account-Global-RegionCodeLower-${AWS::Region}"
+            Description: 'Cron Schedule for ExpFileToS3-LF-Event-EST-FIXEDRATE'
+            Enabled: True
